@@ -11,7 +11,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Bird,
   MemberFilter,
@@ -64,6 +64,78 @@ interface TournamentViewProps {
 
 type StageSubTab = 'contagem' | 'classificacao';
 
+interface SongCountInputProps {
+  id: string;
+  value: number;
+  ariaLabel: string;
+  className: string;
+  onChangeValue: (nextValue: number) => void;
+  onEnterNext?: () => void;
+}
+
+function SongCountInput({
+  id,
+  value,
+  ariaLabel,
+  className,
+  onChangeValue,
+  onEnterNext,
+}: SongCountInputProps) {
+  const [draft, setDraft] = useState(String(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(String(value));
+    }
+  }, [value, isFocused]);
+
+  return (
+    <input
+      id={id}
+      type="number"
+      min={0}
+      inputMode="numeric"
+      aria-label={ariaLabel}
+      value={draft}
+      onFocus={(e) => {
+        setIsFocused(true);
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (raw.trim() === '') {
+          onChangeValue(0);
+          return;
+        }
+        const parsed = Number.parseInt(raw, 10);
+        if (Number.isFinite(parsed)) {
+          onChangeValue(Math.max(0, parsed));
+        }
+      }}
+      onBlur={() => {
+        setIsFocused(false);
+        const parsed = Number.parseInt(draft, 10);
+        const clean = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+        setDraft(String(clean));
+        onChangeValue(clean);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (onEnterNext) {
+            onEnterNext();
+          } else {
+            e.currentTarget.blur();
+          }
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
 export function TournamentView({
   championshipName,
   seasonYear,
@@ -87,7 +159,10 @@ export function TournamentView({
 }: TournamentViewProps) {
   const timer = useStageTimer();
   const [subTab, setSubTab] = useState<StageSubTab>('contagem');
-  const [contagemOrder, setContagemOrder] = useState<'stake' | 'ranking'>('stake');
+  const [contagemOrder, setContagemOrder] = useState<'stake' | 'ranking'>('ranking');
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [frozenRankOrder, setFrozenRankOrder] = useState<string[] | null>(null);
+  const blurTimerRef = useRef<number | null>(null);
   const [enrollDrawerOpen, setEnrollDrawerOpen] = useState(false);
   const [enrollSearch, setEnrollSearch] = useState('');
   const [enrollStakeInput, setEnrollStakeInput] = useState('');
@@ -95,6 +170,14 @@ export function TournamentView({
   const [memberFilter, setMemberFilter] = useState<MemberFilter>('all');
   const [judgeModalOpen, setJudgeModalOpen] = useState(false);
   const [focusedEntryId, setFocusedEntryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current !== null) {
+        window.clearTimeout(blurTimerRef.current);
+      }
+    };
+  }, []);
 
   const orderedStages = useMemo(
     () => [...stages].sort((a, b) => a.stageNumber - b.stageNumber),
@@ -105,6 +188,15 @@ export function TournamentView({
     if (orderedStages.length === 0) return null;
     return orderedStages.find((s) => s.id === selectedStageId) ?? orderedStages[0];
   }, [orderedStages, selectedStageId]);
+
+  useEffect(() => {
+    if (blurTimerRef.current !== null) {
+      window.clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
+    }
+    setEditingRowId(null);
+    setFrozenRankOrder(null);
+  }, [currentStage?.id, contagemOrder]);
 
   // Ranking ordenado: 15m (maior->menor) -> 10m desempate (maior->menor) -> ordem de registro (30, 29, 28... 1)
   const stageRanking: RankedStageEntry[] = useMemo(() => {
@@ -127,13 +219,50 @@ export function TournamentView({
   }, [stageRanking]);
 
   const contagemParticipants = useMemo(() => {
-    if (contagemOrder === 'ranking') return stageRanking;
-    return [...stageRanking].sort((a, b) => {
-      const stakeCmp = compareStakeNumbers(a.entry.stakeNumber, b.entry.stakeNumber);
-      if (stakeCmp !== 0) return stakeCmp;
-      return a.bird.name.localeCompare(b.bird.name, 'pt-BR');
-    });
-  }, [stageRanking, contagemOrder]);
+    if (contagemOrder === 'stake') {
+      return [...stageRanking].sort((a, b) => {
+        const stakeCmp = compareStakeNumbers(a.entry.stakeNumber, b.entry.stakeNumber);
+        if (stakeCmp !== 0) return stakeCmp;
+        return a.bird.name.localeCompare(b.bird.name, 'pt-BR');
+      });
+    }
+
+    if (editingRowId && frozenRankOrder) {
+      const orderIndex = new Map(frozenRankOrder.map((id, idx) => [id, idx]));
+      return [...stageRanking].sort((a, b) => {
+        const idxA = orderIndex.get(a.entry.id);
+        const idxB = orderIndex.get(b.entry.id);
+        if (idxA !== undefined && idxB !== undefined) return idxA - idxB;
+        if (idxA !== undefined) return -1;
+        if (idxB !== undefined) return 1;
+        return 0;
+      });
+    }
+
+    return stageRanking;
+  }, [stageRanking, contagemOrder, editingRowId, frozenRankOrder]);
+
+  const handleRowInputsFocus = (entryId: string) => {
+    if (blurTimerRef.current !== null) {
+      window.clearTimeout(blurTimerRef.current);
+      blurTimerRef.current = null;
+    }
+    if (editingRowId !== entryId) {
+      setEditingRowId(entryId);
+      setFrozenRankOrder(stageRanking.map((r) => r.entry.id));
+    }
+  };
+
+  const handleRowInputsBlur = () => {
+    if (blurTimerRef.current !== null) {
+      window.clearTimeout(blurTimerRef.current);
+    }
+    blurTimerRef.current = window.setTimeout(() => {
+      setEditingRowId(null);
+      setFrozenRankOrder(null);
+      blurTimerRef.current = null;
+    }, 120);
+  };
 
   const filteredParticipants = useMemo(() => {
     const q = participantSearch.trim().toLowerCase();
@@ -347,17 +476,6 @@ export function TournamentView({
               >
                 <button
                   type="button"
-                  onClick={() => setContagemOrder('stake')}
-                  className={`h-full px-2.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                    contagemOrder === 'stake'
-                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Estaca
-                </button>
-                <button
-                  type="button"
                   onClick={() => setContagemOrder('ranking')}
                   className={`h-full px-2.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
                     contagemOrder === 'ranking'
@@ -366,6 +484,17 @@ export function TournamentView({
                   }`}
                 >
                   Posição
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setContagemOrder('stake')}
+                  className={`h-full px-2.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                    contagemOrder === 'stake'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Estaca
                 </button>
               </div>
             )}
@@ -541,7 +670,11 @@ export function TournamentView({
                       </div>
 
                       {/* 10 min & 15 min Song Count Cards (ONLY song counts) */}
-                      <div className="grid grid-cols-2 gap-1.5 flex-1 sm:flex-none">
+                      <div
+                        onFocus={() => handleRowInputsFocus(entry.id)}
+                        onBlur={handleRowInputsBlur}
+                        className="grid grid-cols-2 gap-1.5 flex-1 sm:flex-none"
+                      >
                         <div
                           className={`flex items-center justify-between gap-1.5 px-2 py-1 rounded-xl border ${
                             timer.activeRound === 'part1'
@@ -555,20 +688,20 @@ export function TournamentView({
                           >
                             10m
                           </label>
-                          <input
+                          <SongCountInput
                             id={`p1-${entry.id}`}
-                            type="number"
-                            min={0}
-                            inputMode="numeric"
-                            aria-label={`Cantos 10 minutos de ${bird.name}`}
                             value={entry.part1Songs}
-                            onChange={(e) =>
-                              onUpdateSongs(
-                                entry.id,
-                                'part1Songs',
-                                Number(e.target.value)
-                              )
+                            ariaLabel={`Cantos 10 minutos de ${bird.name}`}
+                            onChangeValue={(nextVal) =>
+                              onUpdateSongs(entry.id, 'part1Songs', nextVal)
                             }
+                            onEnterNext={() => {
+                              const nextInput = document.getElementById(
+                                `p2-${entry.id}`
+                              ) as HTMLInputElement | null;
+                              nextInput?.focus();
+                              nextInput?.select();
+                            }}
                             className="w-16 sm:w-14 min-h-[34px] text-center font-mono tabular-nums text-sm font-bold text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
                           />
                         </div>
@@ -586,19 +719,12 @@ export function TournamentView({
                           >
                             15m
                           </label>
-                          <input
+                          <SongCountInput
                             id={`p2-${entry.id}`}
-                            type="number"
-                            min={0}
-                            inputMode="numeric"
-                            aria-label={`Cantos 15 minutos de ${bird.name}`}
                             value={entry.part2Songs}
-                            onChange={(e) =>
-                              onUpdateSongs(
-                                entry.id,
-                                'part2Songs',
-                                Number(e.target.value)
-                              )
+                            ariaLabel={`Cantos 15 minutos de ${bird.name}`}
+                            onChangeValue={(nextVal) =>
+                              onUpdateSongs(entry.id, 'part2Songs', nextVal)
                             }
                             className="w-16 sm:w-14 min-h-[34px] text-center font-mono tabular-nums text-sm font-bold text-slate-900 bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-600"
                           />

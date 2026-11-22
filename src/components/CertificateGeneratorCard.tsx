@@ -11,6 +11,10 @@ import {
   exportCertificateToPdf,
   exportCertificateToPng,
 } from '../utils/certificateExport';
+import {
+  loadTrimmedPresidentSignature,
+  PRESIDENT_SIGNATURE_PATH,
+} from '../utils/certificateSignature';
 import { computeStageRanking, formatDatePtBr } from '../utils/scoring';
 
 interface CertificateGeneratorCardProps {
@@ -83,10 +87,23 @@ export function CertificateGeneratorCard({
   const [selectedKey, setSelectedKey] = useState<string>('');
   const [exportingType, setExportingType] = useState<'png' | 'pdf' | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
+  const [signatureUrl, setSignatureUrl] = useState<string>(PRESIDENT_SIGNATURE_PATH);
   const logoInputRef = useRef<HTMLInputElement | null>(null);
 
   const cornerOrnamentUrl = useMemo(() => buildBotanicalCornerDataUrl(), []);
   const watermarkUrl = useMemo(() => buildCertificateWatermarkDataUrl(), []);
+
+  useEffect(() => {
+    let active = true;
+    void loadTrimmedPresidentSignature().then((res) => {
+      if (active && res?.dataUrl) {
+        setSignatureUrl(res.dataUrl);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const orderedStages = useMemo(
     () => [...stages].sort((a, b) => a.stageNumber - b.stageNumber),
@@ -529,7 +546,12 @@ export function CertificateGeneratorCard({
               </div>
 
               {/* Signature & Official Footer (Lowered, Without Top Line) */}
-              <div className="pt-8 sm:pt-10 flex flex-col items-center">
+              <div className="pt-3 sm:pt-4 flex flex-col items-center">
+                <img
+                  src={signatureUrl}
+                  alt="Assinatura Presidente AOPE"
+                  className="pointer-events-none select-none h-11 sm:h-14 w-auto object-contain -mb-1"
+                />
                 <p className="text-xs sm:text-sm font-bold text-slate-900">Presidente AOPE</p>
                 <p className="text-[10px] font-mono text-slate-500 mt-0.5">
                   Emitido em {previewIssuedAtText} · Canto &amp; Fibra · Documento Oficial

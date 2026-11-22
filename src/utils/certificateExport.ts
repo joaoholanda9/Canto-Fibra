@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { buildCertificateBackdropDataUrl } from './certificateBackdrop';
+import { loadTrimmedPresidentSignature } from './certificateSignature';
 
 export interface CertificateData {
   championshipName: string;
@@ -115,9 +116,11 @@ function imageToPngDataUrl(
 
 export async function exportCertificateToPng(data: CertificateData): Promise<void> {
   const backdropUrl = buildCertificateBackdropDataUrl(1600, 1130);
-  const [loadedLogo, loadedBackdrop] = await Promise.all([
+  const sigAsset = await loadTrimmedPresidentSignature();
+  const [loadedLogo, loadedBackdrop, loadedSig] = await Promise.all([
     data.eventLogoDataUrl ? loadImageElement(data.eventLogoDataUrl) : Promise.resolve(null),
     loadImageElement(backdropUrl),
+    sigAsset?.dataUrl ? loadImageElement(sigAsset.dataUrl) : Promise.resolve(null),
   ]);
 
   await new Promise<void>((resolve, reject) => {
@@ -334,8 +337,26 @@ export async function exportCertificateToPng(data: CertificateData): Promise<voi
       ctx.fillText(col.value, colCenter, y + 178);
     });
 
-    // Bottom Signature: Presidente AOPE + Footer (Lowered, Without Top Line)
+    // Bottom Signature: Handwritten Rubrica + Presidente AOPE + Footer
     const sigTextY = height - 86;
+    if (loadedSig && loadedSig.naturalWidth > 0 && loadedSig.naturalHeight > 0) {
+      const sigMaxW = 240;
+      const sigMaxH = 104;
+      const scale = Math.min(
+        sigMaxW / loadedSig.naturalWidth,
+        sigMaxH / loadedSig.naturalHeight
+      );
+      const drawW = loadedSig.naturalWidth * scale;
+      const drawH = loadedSig.naturalHeight * scale;
+      ctx.drawImage(
+        loadedSig,
+        centerX - drawW / 2,
+        sigTextY - 24 - drawH,
+        drawW,
+        drawH
+      );
+    }
+
     ctx.fillStyle = '#0f172a';
     ctx.font = '700 20px Tahoma, Verdana, Geneva, sans-serif';
     ctx.fillText('Presidente AOPE', centerX, sigTextY);
@@ -368,9 +389,10 @@ export async function exportCertificateToPng(data: CertificateData): Promise<voi
 
 export async function exportCertificateToPdf(data: CertificateData): Promise<void> {
   const backdropUrl = buildCertificateBackdropDataUrl(1600, 1130);
-  const [loadedLogo, loadedBackdrop] = await Promise.all([
+  const [loadedLogo, loadedBackdrop, sigAsset] = await Promise.all([
     data.eventLogoDataUrl ? loadImageElement(data.eventLogoDataUrl) : Promise.resolve(null),
     loadImageElement(backdropUrl),
+    loadTrimmedPresidentSignature(),
   ]);
 
   const pdfLogoDataUrl =
@@ -565,8 +587,24 @@ export async function exportCertificateToPdf(data: CertificateData): Promise<voi
     doc.text(m.value, cx, y + 32, { align: 'center' });
   });
 
-  // Single Signature Footer: Presidente AOPE (Lowered, Without Top Line)
+  // Single Signature Footer: Handwritten Rubrica + Presidente AOPE (Lowered, Without Top Line)
   const sigTextY = height - 16.5;
+  if (sigAsset && sigAsset.width > 0 && sigAsset.height > 0) {
+    const sigMaxW = 45;
+    const sigMaxH = 19.5;
+    const scale = Math.min(sigMaxW / sigAsset.width, sigMaxH / sigAsset.height);
+    const drawW = sigAsset.width * scale;
+    const drawH = sigAsset.height * scale;
+    doc.addImage(
+      sigAsset.dataUrl,
+      'PNG',
+      centerX - drawW / 2,
+      sigTextY - 4.5 - drawH,
+      drawW,
+      drawH
+    );
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);

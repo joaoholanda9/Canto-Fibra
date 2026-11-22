@@ -1,6 +1,11 @@
-import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { FileText, ImageDown, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { Bird, MemberFilter, Stage, StageEntry } from '../types/championship';
+import {
+  exportBirdStatsToPdf,
+  exportBirdStatsToPng,
+  type BirdStatsExportData,
+} from '../utils/birdStatsExport';
 import {
   calculateApprovalPercent,
   computeGeneralRanking,
@@ -17,6 +22,7 @@ interface BirdsViewProps {
   birds: Bird[];
   stages: Stage[];
   entries: StageEntry[];
+  eventLogoDataUrl?: string;
   onAddBird: (input: {
     name: string;
     ownerName: string;
@@ -33,12 +39,30 @@ interface BirdsViewProps {
   onDeleteBird: (id: string) => void;
 }
 
+function formatAvg(value: number): string {
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function formatNowPtBr(): string {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} às ${hh}:${min}`;
+}
+
 export function BirdsView({
   championshipName,
   seasonYear,
   birds,
   stages,
   entries,
+  eventLogoDataUrl,
   onAddBird,
   onUpdateBird,
   onDeleteBird,
@@ -49,6 +73,10 @@ export function BirdsView({
   const [editingBird, setEditingBird] = useState<Bird | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [performanceBirdId, setPerformanceBirdId] = useState<string | null>(null);
+  const [exportingStatsType, setExportingStatsType] = useState<'png' | 'pdf' | null>(
+    null
+  );
+  const [exportStatsError, setExportStatsError] = useState<string | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -115,9 +143,57 @@ export function BirdsView({
 
     const totalPoints = stageRows.reduce((acc, r) => acc + r.points, 0);
     const stagesDisputed = stageRows.filter((r) => r.participated).length;
+    const scoredStagesCount = stageRows.filter((r) => r.points > 0).length;
     const totalPart1 = stageRows.reduce((acc, r) => acc + r.part1Songs, 0);
     const totalPart2 = stageRows.reduce((acc, r) => acc + r.part2Songs, 0);
     const totalSongs = totalPart1 + totalPart2;
+
+    const stagesWithRecordedSongs = stageRows.filter(
+      (r) => r.participated && (r.part1Songs > 0 || r.part2Songs > 0)
+    ).length;
+    const avgDivisor = stagesWithRecordedSongs || stagesDisputed;
+    const avgPart1 = avgDivisor > 0 ? totalPart1 / avgDivisor : 0;
+    const avgPart2 = avgDivisor > 0 ? totalPart2 / avgDivisor : 0;
+    const avgPoints = avgDivisor > 0 ? totalPoints / avgDivisor : 0;
+
+    let bestPart1: { songs: number; stageNumber: number | null } = {
+      songs: 0,
+      stageNumber: null,
+    };
+    let bestPart2: { songs: number; stageNumber: number | null } = {
+      songs: 0,
+      stageNumber: null,
+    };
+    let bestPosition: { position: number | null; stageNumber: number | null } = {
+      position: null,
+      stageNumber: null,
+    };
+    let podiumsCount = 0;
+    let firstPlacesCount = 0;
+
+    for (const row of stageRows) {
+      if (!row.participated) continue;
+      if (row.part1Songs > bestPart1.songs) {
+        bestPart1 = { songs: row.part1Songs, stageNumber: row.stage.stageNumber };
+      }
+      if (row.part2Songs > bestPart2.songs) {
+        bestPart2 = { songs: row.part2Songs, stageNumber: row.stage.stageNumber };
+      }
+      if (row.position !== null) {
+        if (
+          bestPosition.position === null ||
+          row.position < bestPosition.position
+        ) {
+          bestPosition = {
+            position: row.position,
+            stageNumber: row.stage.stageNumber,
+          };
+        }
+        if (row.position <= 3) podiumsCount += 1;
+        if (row.position === 1) firstPlacesCount += 1;
+      }
+    }
+
     const approvalPercent =
       concludedStagesCount > 0
         ? calculateApprovalPercent(totalPoints, concludedStagesCount)
@@ -131,12 +207,86 @@ export function BirdsView({
       stageRows,
       totalPoints,
       stagesDisputed,
+      scoredStagesCount,
       totalPart1,
       totalPart2,
       totalSongs,
+      avgPart1,
+      avgPart2,
+      avgPoints,
+      bestPart1,
+      bestPart2,
+      bestPosition,
+      podiumsCount,
+      firstPlacesCount,
       approvalPercent,
     };
   }, [performanceBird, stages, entries, birds, concludedStagesCount, generalRanking]);
+
+  const buildBirdStatsExportData = (): BirdStatsExportData | null => {
+    if (!performanceBird || !birdSeasonPerformance) return null;
+    return {
+      championshipName,
+      seasonYear,
+      birdName: performanceBird.name,
+      ownerName: performanceBird.ownerName,
+      isMember: performanceBird.isMember,
+      currentPosition: birdSeasonPerformance.currentPosition,
+      totalRankedBirds: birdSeasonPerformance.totalRankedBirds,
+      totalPoints: birdSeasonPerformance.totalPoints,
+      approvalPercent: birdSeasonPerformance.approvalPercent,
+      concludedStagesCount,
+      stagesDisputed: birdSeasonPerformance.stagesDisputed,
+      scoredStagesCount: birdSeasonPerformance.scoredStagesCount,
+      totalPart1: birdSeasonPerformance.totalPart1,
+      totalPart2: birdSeasonPerformance.totalPart2,
+      totalSongs: birdSeasonPerformance.totalSongs,
+      avgPart1: birdSeasonPerformance.avgPart1,
+      avgPart2: birdSeasonPerformance.avgPart2,
+      avgPoints: birdSeasonPerformance.avgPoints,
+      bestPart1: birdSeasonPerformance.bestPart1,
+      bestPart2: birdSeasonPerformance.bestPart2,
+      bestPosition: birdSeasonPerformance.bestPosition,
+      podiumsCount: birdSeasonPerformance.podiumsCount,
+      firstPlacesCount: birdSeasonPerformance.firstPlacesCount,
+      stageRows: birdSeasonPerformance.stageRows.map((row) => ({
+        stageNumber: row.stage.stageNumber,
+        stageName: row.stage.name,
+        date: row.stage.date,
+        participated: row.participated,
+        stakeNumber: row.stakeNumber,
+        position: row.position,
+        points: row.points,
+        part1Songs: row.part1Songs,
+        part2Songs: row.part2Songs,
+      })),
+      issuedAtText: formatNowPtBr(),
+      eventLogoDataUrl,
+    };
+  };
+
+  const handleExportBirdStats = async (format: 'png' | 'pdf') => {
+    const payload = buildBirdStatsExportData();
+    if (!payload || exportingStatsType) return;
+
+    setExportStatsError(null);
+    setExportingStatsType(format);
+    try {
+      if (format === 'png') {
+        await exportBirdStatsToPng(payload);
+      } else {
+        await exportBirdStatsToPdf(payload);
+      }
+    } catch (err) {
+      setExportStatsError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível exportar as estatísticas da ave.'
+      );
+    } finally {
+      setExportingStatsType(null);
+    }
+  };
 
   const openCreateModal = () => {
     setEditingBird(null);
@@ -275,7 +425,10 @@ export function BirdsView({
                     <td className="py-1.5 px-3">
                       <button
                         type="button"
-                        onClick={() => setPerformanceBirdId(bird.id)}
+                        onClick={() => {
+                          setExportStatsError(null);
+                          setPerformanceBirdId(bird.id);
+                        }}
                         className="font-semibold text-slate-900 hover:text-emerald-800 hover:underline text-left cursor-pointer"
                       >
                         {bird.name}
@@ -350,7 +503,10 @@ export function BirdsView({
                   <div className="min-w-0 flex-1">
                     <button
                       type="button"
-                      onClick={() => setPerformanceBirdId(bird.id)}
+                      onClick={() => {
+                        setExportStatsError(null);
+                        setPerformanceBirdId(bird.id);
+                      }}
                       className="font-display text-sm font-bold text-slate-900 hover:text-emerald-800 hover:underline truncate block max-w-full text-left cursor-pointer"
                     >
                       {bird.name}
@@ -424,21 +580,21 @@ export function BirdsView({
         </div>
       )}
 
-      {/* Bird Annual Performance Modal (with Green Highlighted 10m / 15m Song Cards) */}
+      {/* Bird Annual Performance Modal (Full Statistics + PNG / PDF Export) */}
       {performanceBird && birdSeasonPerformance && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Desempenho anual de ${performanceBird.name}`}
+          aria-label={`Estatísticas completas de ${performanceBird.name}`}
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 backdrop-blur-xs p-0 sm:p-4"
         >
-          <div className="w-full sm:max-w-xl max-h-[88vh] flex flex-col bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 overflow-hidden shadow-xl">
+          <div className="w-full sm:max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 overflow-hidden shadow-xl">
             <div className="sm:hidden w-10 h-1.5 bg-slate-300 rounded-full mx-auto mt-3 shrink-0" />
 
             <div className="px-4 py-3 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0">
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800 truncate">
-                  {championshipName} · {seasonYear}
+                  {championshipName} · {seasonYear} · Ficha Estatística
                 </p>
                 <h2 className="font-display text-base sm:text-lg font-bold text-slate-900 truncate">
                   {performanceBird.name}
@@ -460,7 +616,7 @@ export function BirdsView({
               <button
                 type="button"
                 onClick={() => setPerformanceBirdId(null)}
-                aria-label="Fechar desempenho"
+                aria-label="Fechar estatísticas"
                 className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 shrink-0 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -486,6 +642,9 @@ export function BirdsView({
                 <p className="text-[10px] font-medium text-emerald-800">Etapas</p>
                 <p className="font-mono tabular-nums text-sm font-bold text-emerald-950">
                   {birdSeasonPerformance.stagesDisputed}
+                  <span className="ml-1 text-[10px] font-normal text-emerald-800">
+                    ({birdSeasonPerformance.scoredStagesCount} pont.)
+                  </span>
                 </p>
               </div>
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
@@ -508,80 +667,189 @@ export function BirdsView({
               </div>
             </div>
 
-            {/* Stage-by-Stage Light Green Cards */}
-            <div className="overflow-y-auto flex-1 p-3 sm:p-4 space-y-2">
-              {birdSeasonPerformance.stageRows.length === 0 ? (
-                <div className="p-6 text-center text-xs sm:text-sm text-slate-500">
-                  Nenhuma etapa cadastrada na temporada.
-                </div>
-              ) : (
-                birdSeasonPerformance.stageRows.map((row) => (
-                  <div
-                    key={row.stage.id}
-                    className={`rounded-xl border px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
-                      row.participated
-                        ? 'bg-emerald-50 border-emerald-200'
-                        : 'bg-emerald-50/40 border-emerald-100'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono tabular-nums text-xs font-bold text-emerald-950">
-                          Etapa {String(row.stage.stageNumber).padStart(2, '0')}
-                        </span>
-                        <span className="text-[11px] font-mono text-emerald-800/80">
-                          {formatDatePtBr(row.stage.date)}
-                        </span>
-                        {row.participated && row.stakeNumber && (
-                          <span className="text-[11px] font-mono text-emerald-900">
-                            · Est. {row.stakeNumber}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs font-medium text-emerald-900/90 truncate">
-                        {row.stage.name}
-                      </p>
-                    </div>
-
-                    {row.participated ? (
-                      <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                        <div className="text-left sm:text-right mr-1 leading-tight">
-                          <span className="block font-mono tabular-nums text-xs font-bold text-emerald-950">
-                            {row.position !== null ? `${row.position}º lugar` : 'Aguardando 10m'}
-                          </span>
-                          <span className="block font-mono tabular-nums text-[11px] font-semibold text-emerald-800">
-                            {row.points > 0 ? `+${row.points} pts` : '—'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-200 bg-white">
-                            <span className="text-[11px] font-semibold text-emerald-800 whitespace-nowrap">
-                              10m
-                            </span>
-                            <span className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
-                              {row.part1Songs}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-200 bg-white">
-                            <span className="text-[11px] font-semibold text-emerald-800 whitespace-nowrap">
-                              15m
-                            </span>
-                            <span className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
-                              {row.part2Songs}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-emerald-700/70 shrink-0">
-                        Não participou
-                      </span>
-                    )}
+            {/* Averages, Records & Stage-by-Stage Breakdown */}
+            <div className="overflow-y-auto flex-1 p-3 sm:p-4 space-y-3">
+              {/* Detailed Season Averages & Records */}
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900 mb-2">
+                  Médias, Totais e Recordes na Temporada
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Total 10 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {birdSeasonPerformance.totalPart1} cantos
+                    </p>
                   </div>
-                ))
-              )}
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Total 15 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {birdSeasonPerformance.totalPart2} cantos
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Média 10 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {formatAvg(birdSeasonPerformance.avgPart1)} / etapa
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Média 15 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {formatAvg(birdSeasonPerformance.avgPart2)} / etapa
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Média Pontos</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-900">
+                      {formatAvg(birdSeasonPerformance.avgPoints)} pts/etapa
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Melhor 10 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {birdSeasonPerformance.bestPart1.stageNumber !== null
+                        ? `${birdSeasonPerformance.bestPart1.songs} (E${String(birdSeasonPerformance.bestPart1.stageNumber).padStart(2, '0')})`
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Melhor 15 min</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {birdSeasonPerformance.bestPart2.stageNumber !== null
+                        ? `${birdSeasonPerformance.bestPart2.songs} (E${String(birdSeasonPerformance.bestPart2.stageNumber).padStart(2, '0')})`
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-[10px] font-medium text-emerald-800">Melhor Pos. / Pódios</p>
+                    <p className="font-mono tabular-nums text-xs font-bold text-emerald-950 truncate">
+                      {birdSeasonPerformance.bestPosition.position !== null
+                        ? `${birdSeasonPerformance.bestPosition.position}º · ${birdSeasonPerformance.podiumsCount} pódio(s) (${birdSeasonPerformance.firstPlacesCount}x 1º)`
+                        : 'Sem pódio ainda'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600 px-0.5">
+                  Histórico Completo Etapa por Etapa
+                </p>
+                {birdSeasonPerformance.stageRows.length === 0 ? (
+                  <div className="p-6 text-center text-xs sm:text-sm text-slate-500">
+                    Nenhuma etapa cadastrada na temporada.
+                  </div>
+                ) : (
+                  birdSeasonPerformance.stageRows.map((row) => (
+                    <div
+                      key={row.stage.id}
+                      className={`rounded-xl border px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                        row.participated
+                          ? 'bg-emerald-50 border-emerald-200'
+                          : 'bg-emerald-50/40 border-emerald-100'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono tabular-nums text-xs font-bold text-emerald-950">
+                            Etapa {String(row.stage.stageNumber).padStart(2, '0')}
+                          </span>
+                          <span className="text-[11px] font-mono text-emerald-800/80">
+                            {formatDatePtBr(row.stage.date)}
+                          </span>
+                          {row.participated && row.stakeNumber && (
+                            <span className="text-[11px] font-mono text-emerald-900">
+                              · Est. {row.stakeNumber}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-medium text-emerald-900/90 truncate">
+                          {row.stage.name}
+                        </p>
+                      </div>
+
+                      {row.participated ? (
+                        <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                          <div className="text-left sm:text-right mr-1 leading-tight">
+                            <span className="block font-mono tabular-nums text-xs font-bold text-emerald-950">
+                              {row.position !== null ? `${row.position}º lugar` : 'Aguardando 10m'}
+                            </span>
+                            <span className="block font-mono tabular-nums text-[11px] font-semibold text-emerald-800">
+                              {row.points > 0 ? `+${row.points} pts` : '—'}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-200 bg-white">
+                              <span className="text-[11px] font-semibold text-emerald-800 whitespace-nowrap">
+                                10m
+                              </span>
+                              <span className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                                {row.part1Songs}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-200 bg-white">
+                              <span className="text-[11px] font-semibold text-emerald-800 whitespace-nowrap">
+                                15m
+                              </span>
+                              <span className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                                {row.part2Songs}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-emerald-700/70 shrink-0">
+                          Não participou
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Sticky Export Footer */}
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                {exportStatsError ? (
+                  <p role="alert" className="text-[11px] font-medium text-red-700">
+                    {exportStatsError}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-600">
+                    {birdSeasonPerformance.stageRows.length} etapa(s) na temporada · Exporte a ficha completa
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  disabled={exportingStatsType !== null}
+                  onClick={() => void handleExportBirdStats('png')}
+                  className="min-h-[38px] px-3 py-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-colors disabled:opacity-60 cursor-pointer"
+                >
+                  <ImageDown className="w-3.5 h-3.5" />
+                  <span>
+                    {exportingStatsType === 'png' ? 'Gerando PNG...' : 'Baixar PNG'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={exportingStatsType !== null}
+                  onClick={() => void handleExportBirdStats('pdf')}
+                  className="min-h-[38px] px-3 py-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors disabled:opacity-60 cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>
+                    {exportingStatsType === 'pdf' ? 'Gerando PDF...' : 'Baixar PDF'}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

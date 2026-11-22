@@ -147,6 +147,7 @@ export default function App() {
             birds={store.state.birds}
             stages={store.state.stages}
             entries={store.state.entries}
+            eventLogoDataUrl={store.state.eventLogoDataUrl}
             onAddBird={store.addBird}
             onUpdateBird={store.updateBird}
             onDeleteBird={store.deleteBird}

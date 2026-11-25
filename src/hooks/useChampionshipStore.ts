@@ -16,6 +16,7 @@ import {
 } from '../utils/scoring';
 
 const STORAGE_KEY = 'canto_anilha_championship_v2';
+const V3_BACKUP_STORAGE_KEY = 'canto_anilha_championships_v3';
 
 function generateId(prefix: string): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -118,8 +119,52 @@ function loadInitialState(): ChampionshipState {
       }
     }
   } catch {
-    // Fallback to sample data if localStorage is corrupted
+    // Try v3 recovery fallback before falling back to sample data
   }
+
+  // Fallback: if v2 key was somehow absent, recover Coleiro data from v3 workspace
+  try {
+    const rawV3 = localStorage.getItem(V3_BACKUP_STORAGE_KEY);
+    if (rawV3) {
+      const parsedV3 = JSON.parse(rawV3) as {
+        championships?: Array<{
+          id?: string;
+          name?: string;
+          modality?: string;
+          year?: number;
+          birds?: Bird[];
+          stages?: Stage[];
+          entries?: StageEntry[];
+          settings?: { stageReminder?: unknown; eventLogoDataUrl?: unknown };
+        }>;
+      };
+      const target =
+        parsedV3?.championships?.find(
+          (c) =>
+            c.id === 'champ-2026-coleiro' ||
+            c.modality?.toLowerCase() === 'coleiro'
+        ) ?? parsedV3?.championships?.[0];
+      if (
+        target &&
+        Array.isArray(target.birds) &&
+        Array.isArray(target.stages) &&
+        Array.isArray(target.entries)
+      ) {
+        return {
+          seasonYear: Number(target.year) || 2026,
+          championshipName: migrateChampionshipName(target.name),
+          birds: target.birds,
+          stages: target.stages,
+          entries: sanitizeEntries(target.entries),
+          stageReminder: sanitizeStageReminder(target.settings?.stageReminder),
+          eventLogoDataUrl: resolveLoadedEventLogo(target.settings?.eventLogoDataUrl),
+        };
+      }
+    }
+  } catch {
+    // Fallback to sample data if storage is corrupted
+  }
+
   return createSampleChampionship();
 }
 
@@ -550,7 +595,49 @@ export function useChampionshipStore() {
 
   const importStateJson = useCallback((jsonText: string): { ok: boolean; error?: string } => {
     try {
-      const parsed = JSON.parse(jsonText) as ChampionshipState;
+      const parsed = JSON.parse(jsonText) as ChampionshipState & {
+        championships?: Array<{
+          id?: string;
+          name?: string;
+          modality?: string;
+          year?: number;
+          birds?: Bird[];
+          stages?: Stage[];
+          entries?: StageEntry[];
+          settings?: { stageReminder?: unknown; eventLogoDataUrl?: unknown };
+        }>;
+      };
+
+      if (
+        parsed &&
+        Array.isArray(parsed.championships) &&
+        parsed.championships.length > 0
+      ) {
+        const target =
+          parsed.championships.find(
+            (c) =>
+              c.id === 'champ-2026-coleiro' ||
+              c.modality?.toLowerCase() === 'coleiro'
+          ) ?? parsed.championships[0];
+        if (
+          target &&
+          Array.isArray(target.birds) &&
+          Array.isArray(target.stages) &&
+          Array.isArray(target.entries)
+        ) {
+          setState({
+            seasonYear: Number(target.year) || 2026,
+            championshipName: migrateChampionshipName(target.name),
+            birds: target.birds,
+            stages: target.stages,
+            entries: sanitizeEntries(target.entries),
+            stageReminder: sanitizeStageReminder(target.settings?.stageReminder),
+            eventLogoDataUrl: resolveLoadedEventLogo(target.settings?.eventLogoDataUrl),
+          });
+          return { ok: true };
+        }
+      }
+
       if (
         !parsed ||
         !Array.isArray(parsed.birds) ||

@@ -14,7 +14,10 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChampionshipState, StageReminderConfig } from '../types/championship';
+import type {
+  ChampionshipState,
+  StageReminderConfig,
+} from '../types/championship';
 import {
   computeGeneralRanking,
   formatDatePtBr,
@@ -85,6 +88,7 @@ export function OverviewPanel({
     type: 'ok' | 'err';
     text: string;
   } | null>(null);
+
   const [reminderPanelOpen, setReminderPanelOpen] = useState(false);
   const [reminderFeedback, setReminderFeedback] = useState<string | null>(null);
 
@@ -295,7 +299,7 @@ export function OverviewPanel({
     if (res.ok) {
       setSettingsFeedback({
         type: 'ok',
-        text: 'Configurações atualizadas em todas as visualizações.',
+        text: 'Nome e temporada atualizados em todos os relatórios e cabeçalhos.',
       });
     } else {
       setSettingsFeedback({
@@ -371,15 +375,15 @@ export function OverviewPanel({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
                 {state.championshipName}
               </p>
-            <p className="text-xs font-medium text-slate-500">
-              Temporada {state.seasonYear}
-              <span aria-hidden="true"> · </span>
-              <span className="font-mono tabular-nums">
-                {state.stages.length}/{MAX_STAGES} etapas
-              </span>
-              <span aria-hidden="true"> · </span>
-              <span>Pontuação 30 a 1 pt</span>
-            </p>
+              <p className="text-xs font-medium text-slate-500">
+                Temporada {state.seasonYear}
+                <span aria-hidden="true"> · </span>
+                <span className="font-mono tabular-nums">
+                  {state.stages.length}/{MAX_STAGES} etapas
+                </span>
+                <span aria-hidden="true"> · </span>
+                <span>Pontuação 30 a 1 pt</span>
+              </p>
             <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-slate-900 text-balance">
               {spotlightStage
                 ? `Etapa ${String(spotlightStage.stageNumber).padStart(2, '0')} — ${spotlightStage.name}`
@@ -684,10 +688,12 @@ export function OverviewPanel({
           <p className="text-[11px] sm:text-xs font-medium text-slate-500">Etapas do Ano</p>
           <p className="mt-1 font-mono tabular-nums text-xl sm:text-2xl font-bold text-slate-900">
             {state.stages.length}
-            <span className="text-sm font-normal text-slate-400">/{MAX_STAGES}</span>
+            <span className="text-sm font-normal text-slate-400">
+              /{MAX_STAGES}
+            </span>
           </p>
           <p className="mt-0.5 text-[11px] text-slate-600 truncate">
-            Calendário anual
+            Máximo anual: {MAX_STAGES}
           </p>
         </button>
 
@@ -888,7 +894,7 @@ export function OverviewPanel({
         )}
       </section>
 
-      {/* Championship Settings Form */}
+      {/* Championship Settings & Backup (Compact) */}
       <section
         aria-label="Configurações do campeonato"
         className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4 space-y-3"
@@ -900,7 +906,7 @@ export function OverviewPanel({
               Configurações do Campeonato
             </h2>
             <p className="text-xs text-slate-500">
-              Altere o nome do evento e o ano da temporada exibidos em todo o aplicativo e nos relatórios.
+              Defina o nome oficial e a temporada exibidos nos relatórios, certificados e cabeçalhos.
             </p>
           </div>
         </div>
@@ -950,7 +956,7 @@ export function OverviewPanel({
             />
           </div>
 
-          <div className="sm:col-span-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="sm:col-span-4 flex items-center gap-2">
             <button
               type="submit"
               className="flex-1 min-h-[40px] px-3.5 py-2 inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors whitespace-nowrap cursor-pointer"

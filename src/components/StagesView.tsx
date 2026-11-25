@@ -246,7 +246,7 @@ export function StagesView({
             Etapas do Campeonato
           </h1>
           <p className="text-xs text-slate-600">
-            Até {MAX_STAGES} etapas com edição livre de estacas.{' '}
+            Até {MAX_STAGES} etapas anuais com edição livre de estacas.{' '}
             <span className="font-mono tabular-nums font-medium text-slate-800">
               {stages.length}/{MAX_STAGES} cadastradas
             </span>

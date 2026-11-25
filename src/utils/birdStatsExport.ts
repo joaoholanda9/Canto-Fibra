@@ -367,11 +367,12 @@ export async function exportBirdStatsToPng(
             : '—',
       },
       {
-        label: 'Melhor Posição / Pódios',
+        label: 'Melhor Pos.',
         value:
-          data.bestPosition.position !== null
-            ? `${data.bestPosition.position}º lugar · ${data.podiumsCount} pódio(s) (${data.firstPlacesCount}x 1º)`
-            : 'Sem pódio ainda',
+          data.bestPosition.position !== null &&
+          data.bestPosition.stageNumber !== null
+            ? `${data.bestPosition.position}º lugar (E${String(data.bestPosition.stageNumber).padStart(2, '0')})`
+            : '—',
       },
     ];
 
@@ -463,7 +464,7 @@ export async function exportBirdStatsToPng(
 
         const stageLabel = `E${String(row.stageNumber).padStart(2, '0')} — ${row.stageName}`;
         const posLabel = !row.participated
-          ? 'Não participou'
+          ? 'Não pontuou'
           : row.position !== null
             ? `${row.position}º lugar`
             : 'Aguardando 10m';
@@ -717,11 +718,12 @@ export async function exportBirdStatsToPdf(
           : '—',
     },
     {
-      label: 'Melhor Pos. / Pódios',
+      label: 'Melhor Pos.',
       value:
-        data.bestPosition.position !== null
-          ? `${data.bestPosition.position}º · ${data.podiumsCount} pódio(s) (${data.firstPlacesCount}x 1º)`
-          : 'Sem pódio',
+        data.bestPosition.position !== null &&
+        data.bestPosition.stageNumber !== null
+          ? `${data.bestPosition.position}º lugar (E${String(data.bestPosition.stageNumber).padStart(2, '0')})`
+          : '—',
     },
   ];
 
@@ -828,7 +830,7 @@ export async function exportBirdStatsToPdf(
 
       const stageLabel = `E${String(row.stageNumber).padStart(2, '0')} — ${row.stageName}`;
       const posLabel = !row.participated
-        ? 'Não participou'
+        ? 'Não pontuou'
         : row.position !== null
           ? `${row.position}º lugar`
           : 'Aguard. 10m';

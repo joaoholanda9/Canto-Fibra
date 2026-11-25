@@ -722,11 +722,12 @@ export function BirdsView({
                     </p>
                   </div>
                   <div className="bg-white/90 border border-emerald-100 rounded-lg px-2.5 py-1.5">
-                    <p className="text-[10px] font-medium text-emerald-800">Melhor Pos. / Pódios</p>
-                    <p className="font-mono tabular-nums text-xs font-bold text-emerald-950 truncate">
-                      {birdSeasonPerformance.bestPosition.position !== null
-                        ? `${birdSeasonPerformance.bestPosition.position}º · ${birdSeasonPerformance.podiumsCount} pódio(s) (${birdSeasonPerformance.firstPlacesCount}x 1º)`
-                        : 'Sem pódio ainda'}
+                    <p className="text-[10px] font-medium text-emerald-800">Melhor Pos.</p>
+                    <p className="font-mono tabular-nums text-xs sm:text-sm font-bold text-emerald-950">
+                      {birdSeasonPerformance.bestPosition.position !== null &&
+                      birdSeasonPerformance.bestPosition.stageNumber !== null
+                        ? `${birdSeasonPerformance.bestPosition.position}º lugar (E${String(birdSeasonPerformance.bestPosition.stageNumber).padStart(2, '0')})`
+                        : '—'}
                     </p>
                   </div>
                 </div>
@@ -802,7 +803,7 @@ export function BirdsView({
                         </div>
                       ) : (
                         <span className="text-xs text-emerald-700/70 shrink-0">
-                          Não participou
+                          Não pontuou
                         </span>
                       )}
                     </div>

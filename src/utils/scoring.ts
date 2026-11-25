@@ -243,6 +243,7 @@ export function computeGeneralRanking(
 
   rows.sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+    if (b.totalSongs !== a.totalSongs) return b.totalSongs - a.totalSongs;
     if (b.totalPart2Songs !== a.totalPart2Songs) return b.totalPart2Songs - a.totalPart2Songs;
     if (b.totalPart1Songs !== a.totalPart1Songs) return b.totalPart1Songs - a.totalPart1Songs;
     if (b.stagesDisputed !== a.stagesDisputed) return b.stagesDisputed - a.stagesDisputed;
